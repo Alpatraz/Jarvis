@@ -560,12 +560,13 @@ const addGoogleEvent = async (title, date, time) => {
     setTests(results);
   }, [weather, events, assistantName, tools]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+// eslint-disable-next-line react-hooks/exhaustive-deps
 useEffect(() => {
   if (googleToken) {
     fetchGoogleEvents();
   }
 }, [googleToken]);
+
 
   // ---------- proposal modal handlers ----------
   const approveProposal = () => {
