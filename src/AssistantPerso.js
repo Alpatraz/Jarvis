@@ -335,123 +335,147 @@ rec.onend = () => {
   };
 
   // >>> FIX: single, async handleSend (no stray 'await' outside a function)
-  // ✅ Fonction handleSend corrigée et sécurisée
-  const handleSend = async (text) => {
-    const userText = typeof text === "string" ? text : input;
-    if (!userText || !userText.trim()) return;
-  
-    setInput("");
-    setMessages((prev) => [...prev, { from: "user", text: userText }]);
-    setLoading(true);
-  
-    try {
-      if (!apiKey) {
+  // ✅ Fonction handleSend corrigée : distingue tâches et événements
+const handleSend = async (text) => {
+  const userText = typeof text === "string" ? text : input;
+  if (!userText || !userText.trim()) return;
+
+  setInput("");
+  setMessages((prev) => [...prev, { from: "user", text: userText }]);
+  setLoading(true);
+
+  try {
+    // === 🔹 Cas 1 : ajout d'une tâche locale ===
+    if (userText.toLowerCase().includes("tâche")) {
+      const match = userText.match(/["“”']([^"“”']+)["“”']/);
+      const title = match ? match[1] : userText.replace(/ajoute(r)? une tâche/i, "").trim();
+
+      if (title) {
+        const newTask = { text: title, done: false };
+        setTasks((prev) => [...prev, newTask]);
         setMessages((prev) => [
           ...prev,
-          {
-            from: "assistant",
-            text: "⚠️ Pas de clé API configurée. Renseigne-la dans les paramètres.",
-          },
+          { from: "assistant", text: `📝 Tâche « ${title} » ajoutée dans ta liste Jarvis.` },
         ]);
-        setLoading(false);
-        return;
+        speak(`Tâche ${title} ajoutée.`);
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          { from: "assistant", text: "Je n'ai pas compris le nom de la tâche à ajouter." },
+        ]);
       }
-  
-      // === 🧠 Contexte agenda
-      const today = new Date();
-      const tomorrow = new Date(today);
-      tomorrow.setDate(today.getDate() + 1);
-      const todayStr = today.toISOString().split("T")[0];
-      const tomorrowStr = tomorrow.toISOString().split("T")[0];
-  
-      const todayList =
-        events
-          .filter((e) => e.date === todayStr)
-          .map((e) => `${e.time} → ${e.title}`)
-          .join("; ") || "aucun événement aujourd’hui";
-  
-      const tomorrowList =
-        events
-          .filter((e) => e.date === tomorrowStr)
-          .map((e) => `${e.time} → ${e.title}`)
-          .join("; ") || "aucun événement demain";
-  
-      // === 🔧 Prompt enrichi pour Jarvis
-      const payload = {
-        model,
-        messages: [
-          {
-            role: "system",
-            content: `Tu es Jarvis, assistant personnel francophone relié à Google Calendar.
-            Nous sommes le ${today.toLocaleDateString("fr-CA", {
-              weekday: "long",
-              year: "numeric",
-              month: "long",
-              day: "numeric",
-            })}.
-            Voici les événements connus :
-            • Aujourd’hui : ${todayList}
-            • Demain : ${tomorrowList}
-  
-            Si l’utilisateur te demande d’ajouter un événement,
-            tu dois répondre uniquement sous forme JSON à la ligne suivante :
-            {"action":"add_event","title":"Titre","date":"YYYY-MM-DD","time":"HH:MM"}
-            Sinon, réponds normalement en texte.`,
-          },
-          { role: "user", content: userText },
-        ],
-      };
-  
-      // === 📡 Envoi à OpenRouter
-      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(payload),
-      });
-  
-      const data = await res.json();
-      let botReply =
-        data?.choices?.[0]?.message?.content?.trim() ||
-        "Je n’ai pas compris ta demande.";
-  
-      // === 🤖 Essaie d'interpréter une réponse JSON d’ajout d’événement
-      if (botReply.startsWith("{") && botReply.includes('"action"')) {
-        try {
-          const parsed = JSON.parse(botReply);
-          if (parsed.action === "add_event" && parsed.title && parsed.date) {
-            setMessages((prev) => [
-              ...prev,
-              { from: "assistant", text: `🗓️ Ajout de l’événement « ${parsed.title} » le ${parsed.date} à ${parsed.time || "00:00"}...` },
-            ]);
-  
-            await addGoogleEvent(parsed.title, parsed.date, parsed.time || "00:00");
-  
-            setMessages((prev) => [
-              ...prev,
-              { from: "assistant", text: `✅ Événement ajouté à ton Google Calendar !` },
-            ]);
-            speak("Événement ajouté à ton agenda.");
-            setLoading(false);
-            return;
-          }
-        } catch (e) {
-          console.warn("Erreur JSON Jarvis:", e);
-        }
-      }
-  
-      // === Sinon, simple réponse textuelle
-      setMessages((prev) => [...prev, { from: "assistant", text: botReply }]);
-      speak(botReply);
-    } catch (err) {
-      console.error("Erreur handleSend :", err);
-    } finally {
+
       setLoading(false);
+      return;
     }
-  };
-  
+
+    // === 🔹 Cas 2 : réponse standard (OpenRouter / IA)
+    if (!apiKey) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          from: "assistant",
+          text: "⚠️ Pas de clé API configurée. Renseigne-la dans les paramètres.",
+        },
+      ]);
+      setLoading(false);
+      return;
+    }
+
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+    const todayStr = today.toISOString().split("T")[0];
+    const tomorrowStr = tomorrow.toISOString().split("T")[0];
+
+    const todayList =
+      events
+        .filter((e) => e.date === todayStr)
+        .map((e) => `${e.time} → ${e.title}`)
+        .join("; ") || "aucun événement aujourd’hui";
+
+    const tomorrowList =
+      events
+        .filter((e) => e.date === tomorrowStr)
+        .map((e) => `${e.time} → ${e.title}`)
+        .join("; ") || "aucun événement demain";
+
+    const payload = {
+      model,
+      messages: [
+        {
+          role: "system",
+          content: `Tu es Jarvis, assistant personnel francophone relié à Google Calendar.
+          Nous sommes le ${today.toLocaleDateString("fr-CA", {
+            weekday: "long",
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+          })}.
+          Voici les événements connus :
+          • Aujourd’hui : ${todayList}
+          • Demain : ${tomorrowList}
+
+          Si l’utilisateur te demande d’ajouter un événement,
+          tu dois répondre uniquement sous forme JSON :
+          {"action":"add_event","title":"Titre","date":"YYYY-MM-DD","time":"HH:MM"}
+          Sinon, réponds normalement.`,
+        },
+        { role: "user", content: userText },
+      ],
+    };
+
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json();
+    let botReply =
+      data?.choices?.[0]?.message?.content?.trim() ||
+      "Je n’ai pas compris ta demande.";
+
+    // === 🔹 Cas 3 : JSON d’ajout d’événement
+    if (botReply.startsWith("{") && botReply.includes('"action"')) {
+      try {
+        const parsed = JSON.parse(botReply);
+        if (parsed.action === "add_event" && parsed.title && parsed.date) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              from: "assistant",
+              text: `🗓️ Ajout de l’événement « ${parsed.title} » le ${parsed.date} à ${parsed.time || "00:00"}...`,
+            },
+          ]);
+
+          await addGoogleEvent(parsed.title, parsed.date, parsed.time || "00:00");
+
+          setMessages((prev) => [
+            ...prev,
+            { from: "assistant", text: `✅ Événement ajouté à ton Google Calendar !` },
+          ]);
+          speak("Événement ajouté à ton agenda.");
+          setLoading(false);
+          return;
+        }
+      } catch (e) {
+        console.warn("Erreur JSON Jarvis:", e);
+      }
+    }
+
+    // === 🔹 Réponse textuelle simple
+    setMessages((prev) => [...prev, { from: "assistant", text: botReply }]);
+    speak(botReply);
+  } catch (err) {
+    console.error("Erreur handleSend :", err);
+  } finally {
+    setLoading(false);
+  }
+};
   
   const getIcon = (type) => (type === "idea" ? "💡" : type === "karate" ? "🥋" : type === "event" ? "📅" : "");
   const getListColor = (type) =>
