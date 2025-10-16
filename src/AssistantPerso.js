@@ -53,6 +53,8 @@ function AssistantPerso() {
   const [googleToken, setGoogleToken] = useState(lsGet("googleToken") || null);
   const [now, setNow] = useState(new Date());
   const [tests, setTests] = useState([]);
+    // ✅ Toasts temporaires (notifications visuelles)
+    const [quickToast, setQuickToast] = useState(null);
 
   // Jarvis extras
   const [listening, setListening] = useState(false);
@@ -71,12 +73,75 @@ function AssistantPerso() {
     calendar: { date: new Date().toISOString().split("T")[0], time: "19:00", title: "Entraînement Karaté – Kicks" },
     notes: "Objectif: précision + explosivité; RPE 7-8.",
   });
-  const [quickToast, setQuickToast] = useState(null);
-  const [tools] = useState([
-    { name: "ChatGPT", url: "https://chatgpt.com" },
-    { name: "Kinko Management", url: "https://kinkomanagement.netlify.app/" },
-    { name: "Service Client IA", url: "https://service-client-ia.netlify.app/" },
-  ]);
+    // Liens rapides modifiables
+    const [links, setLinks] = useState(() => {
+      try {
+        const saved = lsGet("links");
+        return saved ? JSON.parse(saved) : [
+          { name: "ChatGPT", url: "https://chat.openai.com" },
+          { name: "Kinko Management", url: "https://kinkomanagement.netlify.app/" },
+          { name: "Service Client IA", url: "https://service-client-ia.netlify.app/" }
+        ];
+      } catch {
+        return [];
+      }
+    });
+  
+    // Sauvegarde auto des liens
+    useEffect(() => {
+      lsSet("links", JSON.stringify(links));
+    }, [links]);
+  
+    // Bloc de tâches persistantes
+    const [tasks, setTasks] = useState(() => {
+      try {
+        const saved = lsGet("tasks");
+        return saved ? JSON.parse(saved) : [
+          { text: "Préparer le plan d'entraînement", done: false },
+          { text: "Tester la voix de Jarvis", done: true }
+        ];
+      } catch {
+        return [];
+      }
+    });
+  
+    // Sauvegarde auto des tâches
+    useEffect(() => {
+      lsSet("tasks", JSON.stringify(tasks));
+    }, [tasks]);
+  
+    const addLink = () => {
+      if (links.length >= 6) {
+        setQuickToast("Tu as atteint la limite de 6 liens !");
+        setTimeout(() => setQuickToast(null), 1500);
+        return;
+      }
+      const name = prompt("Nom du lien rapide :");
+      const url = prompt("URL complète (https://...) :");
+      if (name && url) setLinks([...links, { name, url }]);
+    };
+  
+    const toggleTask = (index) => {
+      setTasks(tasks.map((t, i) => i === index ? { ...t, done: !t.done } : t));
+    };
+  
+    const addTask = () => {
+      const text = prompt("Nouvelle tâche :");
+      if (text) setTasks([...tasks, { text, done: false }]);
+    };
+
+    useEffect(() => {
+      const now = new Date();
+      const msToMidnight =
+        new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0) -
+        now;
+    
+      const timer = setTimeout(() => {
+        setTasks(prev => prev.filter(t => !t.done)); // supprime les tâches terminées
+      }, msToMidnight);
+    
+      return () => clearTimeout(timer);
+    }, [tasks]);
 
   // ---------- effects ----------
   useEffect(() => {
@@ -552,13 +617,13 @@ const addGoogleEvent = async (title, date, time) => {
       pass: typeof window !== "undefined" ? ("speechSynthesis" in window) : false,
       info: "API Speech Synthesis accessible",
     });
-    results.push({ name: "toolsPresent", pass: Array.isArray(tools) && tools.length >= 1, info: "Liens rapides configurés" });
+    results.push({ name: "toolsPresent", pass: Array.isArray(links) && links.length >= 1, info: "Liens rapides configurés" });
     // New tests (non-breaking)
     const isAsync = Object.prototype.toString.call(handleSend).includes("AsyncFunction");
-    results.push({ name: "handleSendAsync", pass: isAsync, info: "handleSend est async" });
-    results.push({ name: "linksThreeItems", pass: tools.length === 3, info: "3 liens rapides visibles" });
+    results.push({ name: "linksPresent", pass: Array.isArray(links) && links.length >= 1, info: "Liens rapides configurés" });
+results.push({ name: "linksThreeItems", pass: links.length === 3, info: "3 liens rapides visibles" });
     setTests(results);
-  }, [weather, events, assistantName, tools]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [weather, events, assistantName, links]); // eslint-disable-line react-hooks/exhaustive-deps
 
 // eslint-disable-next-line react-hooks/exhaustive-deps
 useEffect(() => {
@@ -596,6 +661,11 @@ useEffect(() => {
     setTimeout(() => setQuickToast(null), 1200);
   };
 
+// ✅ Vérifie si le profil est complet (toutes les questions ont une réponse)
+const isProfileComplete = sampleProfileQuestions.every(
+  (q) => profileAnswers[q] && profileAnswers[q].trim() !== ""
+);
+
   // ---------- render ----------
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -632,7 +702,7 @@ useEffect(() => {
             )}
           </div>
           <div className="flex items-center gap-3 text-xs">
-            <span className={`px-2 py-1 rounded-full ${Object.keys(profileAnswers).length ? "bg-emerald-600/30 text-emerald-300" : "bg-rose-600/30 text-rose-300"}`}>Profil</span>
+          <span className={`px-2 py-1 rounded-full ${isProfileComplete ? "bg-emerald-600/30 text-emerald-300" : "bg-rose-600/30 text-rose-300"}`}>Profil</span>
             <span className={`px-2 py-1 rounded-full ${apiKey ? "bg-emerald-600/30 text-emerald-300" : "bg-rose-600/30 text-rose-300"}`}>Clé API</span>
             <span className={`px-2 py-1 rounded-full ${googleToken ? "bg-emerald-600/30 text-emerald-300" : "bg-rose-600/30 text-rose-300"}`}>Google</span>
             {/* 🎙️ Bouton vocal immersif */}
@@ -760,24 +830,69 @@ useEffect(() => {
 
         {/* Widgets column */}
         <aside className="col-span-1 space-y-4">
-          {/* Liens rapides */}
-          <div className="border border-slate-700 rounded-xl bg-slate-900/50 p-3">
-            <h2 className="font-semibold mb-2">🔗 Liens rapides</h2>
-            <ul className="space-y-1 text-sm">
-              {tools.map((t, i) => (
-                <li key={i}>
-                  <a
-                    className="text-emerald-300 hover:text-emerald-200 underline"
-                    href={t.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    {t.name}
-                  </a>
-                </li>
-              ))}
-            </ul>
+          {/* 🔗 Liens rapides (max 6, modifiables) */}
+<div className="border border-slate-700 rounded-xl bg-slate-900/50 p-3">
+  <div className="flex items-center justify-between mb-2">
+    <h2 className="font-semibold">🔗 Liens rapides</h2>
+    <button
+      onClick={addLink}
+      className="text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-100"
+    >
+      ➕ Ajouter
+    </button>
+  </div>
+
+  {links.length === 0 ? (
+    <p className="text-sm text-slate-400">Aucun lien ajouté pour l'instant.</p>
+  ) : (
+    <div className="grid grid-cols-2 gap-2">
+      {links.map((link, i) => (
+        <div
+          key={i}
+          className="flex items-center justify-between bg-slate-800/50 px-2 py-1 rounded"
+        >
+          <a
+            href={link.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm text-emerald-300 hover:text-emerald-100 truncate"
+            title={link.url}
+          >
+            {link.name}
+          </a>
+          <div className="flex gap-1 ml-1">
+            <button
+              onClick={() => {
+                const name = prompt("Modifier le nom :", link.name);
+                const url = prompt("Modifier l'URL :", link.url);
+                if (name && url) {
+                  const updated = [...links];
+                  updated[i] = { name, url };
+                  setLinks(updated);
+                }
+              }}
+              className="text-xs text-yellow-400 hover:text-yellow-200"
+              title="Modifier"
+            >
+              ✏️
+            </button>
+            <button
+              onClick={() => {
+                if (window.confirm("Supprimer ce lien ?")) {
+                  setLinks(links.filter((_, idx) => idx !== i));
+                }
+              }}
+              className="text-xs text-rose-400 hover:text-rose-200"
+              title="Supprimer"
+            >
+              🗑️
+            </button>
           </div>
+        </div>
+      ))}
+    </div>
+  )}
+</div>
 
           {/* Profil (collapsible) */}
           <div className="border border-slate-700 rounded-xl bg-slate-900/50">
@@ -812,6 +927,38 @@ useEffect(() => {
               </ul>
             </div>
           )}
+
+{/* ✅ Tâches à faire */}
+{(activeSection === "all" || activeSection === "tasks") && (
+  <div className="p-3 border border-slate-700 rounded-xl bg-slate-900/50">
+    <div className="flex items-center justify-between mb-2">
+      <h2 className="font-semibold flex items-center gap-2">
+        ✅ Tâches
+        <span className="text-xs text-slate-400">({tasks.filter(t => !t.done).length} restantes)</span>
+      </h2>
+      <button
+        onClick={addTask}
+        className="text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-100"
+      >
+        ➕ Ajouter
+      </button>
+    </div>
+    <ul className="space-y-1 text-sm">
+      {tasks.map((t, i) => (
+        <li
+          key={i}
+          onClick={() => toggleTask(i)}
+          className={`flex items-center gap-2 cursor-pointer ${
+            t.done ? "line-through text-slate-500" : "text-slate-200"
+          }`}
+        >
+          <input type="checkbox" checked={t.done} readOnly />
+          {t.text}
+        </li>
+      ))}
+    </ul>
+  </div>
+)}
 
           {/* Karaté */}
           {(activeSection === "all" || activeSection === "karate") && (
