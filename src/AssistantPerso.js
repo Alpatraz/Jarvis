@@ -240,7 +240,7 @@ rec.onend = () => {
     try {
       const clientId = "509675438569-rm8lenuieem6k0d7p269s5o9b254ua85.apps.googleusercontent.com"; // TODO: remplacer par le tien
       const redirectUri = window.location.origin;
-      const scope = "https://www.googleapis.com/auth/calendar.events";
+      const scope = "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events";
       const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=token&scope=${scope}`;
       const popup = window.open(authUrl, "_blank", "width=500,height=600");
       const poll = setInterval(() => {
@@ -271,69 +271,122 @@ rec.onend = () => {
 
   // >>> FIX: single, async handleSend (no stray 'await' outside a function)
   // ✅ Fonction handleSend corrigée et sécurisée
-const handleSend = async (text) => {
-  const userText = typeof text === "string" ? text : input;
-  if (!userText || !userText.trim()) return;
-
-  setInput("");
-  setMessages((prev) => [...prev, { from: "user", text: userText }]);
-  setLoading(true); // Active l’animation Siri
-
-  try {
-    if (!apiKey) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          from: "assistant",
-          text: "⚠️ Pas de clé API configurée. Renseigne-la dans les paramètres.",
-        },
-      ]);
-      setLoading(false);
-      return;
-    }
-
-    const payload = {
-      model,
-      messages: [
-        {
-          role: "system",
-          content: `Tu es Jarvis, assistant personnel. Nous sommes le ${new Date().toLocaleDateString(
-            "fr-CA",
-            {
+  const handleSend = async (text) => {
+    const userText = typeof text === "string" ? text : input;
+    if (!userText || !userText.trim()) return;
+  
+    setInput("");
+    setMessages((prev) => [...prev, { from: "user", text: userText }]);
+    setLoading(true);
+  
+    try {
+      if (!apiKey) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            from: "assistant",
+            text: "⚠️ Pas de clé API configurée. Renseigne-la dans les paramètres.",
+          },
+        ]);
+        setLoading(false);
+        return;
+      }
+  
+      // === 🧠 Contexte agenda
+      const today = new Date();
+      const tomorrow = new Date(today);
+      tomorrow.setDate(today.getDate() + 1);
+      const todayStr = today.toISOString().split("T")[0];
+      const tomorrowStr = tomorrow.toISOString().split("T")[0];
+  
+      const todayList =
+        events
+          .filter((e) => e.date === todayStr)
+          .map((e) => `${e.time} → ${e.title}`)
+          .join("; ") || "aucun événement aujourd’hui";
+  
+      const tomorrowList =
+        events
+          .filter((e) => e.date === tomorrowStr)
+          .map((e) => `${e.time} → ${e.title}`)
+          .join("; ") || "aucun événement demain";
+  
+      // === 🔧 Prompt enrichi pour Jarvis
+      const payload = {
+        model,
+        messages: [
+          {
+            role: "system",
+            content: `Tu es Jarvis, assistant personnel francophone relié à Google Calendar.
+            Nous sommes le ${today.toLocaleDateString("fr-CA", {
               weekday: "long",
               year: "numeric",
               month: "long",
               day: "numeric",
-            }
-          )}.`,
+            })}.
+            Voici les événements connus :
+            • Aujourd’hui : ${todayList}
+            • Demain : ${tomorrowList}
+  
+            Si l’utilisateur te demande d’ajouter un événement,
+            tu dois répondre uniquement sous forme JSON à la ligne suivante :
+            {"action":"add_event","title":"Titre","date":"YYYY-MM-DD","time":"HH:MM"}
+            Sinon, réponds normalement en texte.`,
+          },
+          { role: "user", content: userText },
+        ],
+      };
+  
+      // === 📡 Envoi à OpenRouter
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
         },
-        { role: "user", content: userText },
-      ],
-    };
-
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(payload),
-    });
-
-    const data = await res.json();
-    const botReply =
-      data?.choices?.[0]?.message?.content ||
-      "Je n’ai pas compris ta demande.";
-
-    setMessages((prev) => [...prev, { from: "assistant", text: botReply }]);
-    speak(botReply);
-  } catch (err) {
-    console.error("Erreur handleSend :", err);
-  } finally {
-    setLoading(false); // Désactive l’animation Siri
-  }
-};
-
+        body: JSON.stringify(payload),
+      });
+  
+      const data = await res.json();
+      let botReply =
+        data?.choices?.[0]?.message?.content?.trim() ||
+        "Je n’ai pas compris ta demande.";
+  
+      // === 🤖 Essaie d'interpréter une réponse JSON d’ajout d’événement
+      if (botReply.startsWith("{") && botReply.includes('"action"')) {
+        try {
+          const parsed = JSON.parse(botReply);
+          if (parsed.action === "add_event" && parsed.title && parsed.date) {
+            setMessages((prev) => [
+              ...prev,
+              { from: "assistant", text: `🗓️ Ajout de l’événement « ${parsed.title} » le ${parsed.date} à ${parsed.time || "00:00"}...` },
+            ]);
+  
+            await addGoogleEvent(parsed.title, parsed.date, parsed.time || "00:00");
+  
+            setMessages((prev) => [
+              ...prev,
+              { from: "assistant", text: `✅ Événement ajouté à ton Google Calendar !` },
+            ]);
+            speak("Événement ajouté à ton agenda.");
+            setLoading(false);
+            return;
+          }
+        } catch (e) {
+          console.warn("Erreur JSON Jarvis:", e);
+        }
+      }
+  
+      // === Sinon, simple réponse textuelle
+      setMessages((prev) => [...prev, { from: "assistant", text: botReply }]);
+      speak(botReply);
+    } catch (err) {
+      console.error("Erreur handleSend :", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
   
   const getIcon = (type) => (type === "idea" ? "💡" : type === "karate" ? "🥋" : type === "event" ? "📅" : "");
   const getListColor = (type) =>
@@ -379,6 +432,90 @@ const handleSend = async (text) => {
   const todayEvents = events.filter((e) => e.date === todayStr);
   const tomorrowEvents = events.filter((e) => e.date === tomorrowStr);
 
+// 📅 Récupération des événements du jour
+const fetchGoogleEvents = async () => {
+  if (!googleToken) {
+    setQuickToast("Connecte-toi à Google d'abord");
+    setTimeout(() => setQuickToast(null), 1500);
+    return;
+  }
+
+  try {
+    const now = new Date();
+    const start = now.toISOString();
+    const end = new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString();
+
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${start}&timeMax=${end}&singleEvents=true&orderBy=startTime`,
+      { headers: { Authorization: `Bearer ${googleToken}` } }
+    );
+
+    const data = await res.json();
+    if (data.items) {
+      const formatted = data.items.map((item) => ({
+        date: item.start.dateTime?.split("T")[0] || item.start.date,
+        time: item.start.dateTime
+          ? item.start.dateTime.split("T")[1].slice(0, 5)
+          : "",
+        title: item.summary || "(Sans titre)",
+      }));
+      setEvents(formatted);
+      setQuickToast(`📅 ${formatted.length} événements chargés`);
+      setTimeout(() => setQuickToast(null), 2000);
+    } else {
+      setQuickToast("Aucun événement trouvé");
+    }
+  } catch (err) {
+    console.error("Erreur fetchGoogleEvents:", err);
+    setQuickToast("Erreur Google Calendar");
+  }
+};
+
+// 📆 Ajouter un événement au calendrier
+const addGoogleEvent = async (title, date, time) => {
+  if (!googleToken) {
+    setQuickToast("Connecte-toi à Google d'abord");
+    return;
+  }
+
+  try {
+    const event = {
+      summary: title,
+      start: { dateTime: `${date}T${time}:00`, timeZone: "America/Toronto" },
+      end: {
+        dateTime: `${date}T${
+          time ? `${parseInt(time.split(":")[0]) + 1}:00` : "23:59"
+        }:00`,
+        timeZone: "America/Toronto",
+      },
+    };
+
+    const res = await fetch(
+      "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${googleToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(event),
+      }
+    );
+
+    if (res.ok) {
+      setQuickToast("✅ Événement ajouté au calendrier");
+      fetchGoogleEvents(); // recharge la liste
+    } else {
+      const error = await res.json();
+      console.warn("Erreur ajout event:", error);
+      setQuickToast("Erreur lors de l’ajout");
+    }
+  } catch (err) {
+    console.error("Erreur addGoogleEvent:", err);
+    setQuickToast("Erreur connexion Google");
+  }
+};
+
   // ---------- self tests ----------
   useEffect(() => {
     const results = [];
@@ -402,6 +539,7 @@ const handleSend = async (text) => {
       });
     }
     results.push({ name: "googleAuthHooked", pass: typeof handleGoogleLogin === "function", info: "Bouton OAuth relié" });
+    
     results.push({
       name: "eventsArrays",
       pass: Array.isArray(events) && Array.isArray(todayEvents) && Array.isArray(tomorrowEvents),
@@ -421,6 +559,13 @@ const handleSend = async (text) => {
     results.push({ name: "linksThreeItems", pass: tools.length === 3, info: "3 liens rapides visibles" });
     setTests(results);
   }, [weather, events, assistantName, tools]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 👇 Hook séparé, à la racine du composant
+useEffect(() => {
+  if (googleToken) {
+    fetchGoogleEvents();
+  }
+}, [googleToken]);
 
   // ---------- proposal modal handlers ----------
   const approveProposal = () => {
