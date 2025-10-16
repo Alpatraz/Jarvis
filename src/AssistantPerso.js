@@ -560,7 +560,7 @@ const addGoogleEvent = async (title, date, time) => {
     setTests(results);
   }, [weather, events, assistantName, tools]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 👇 Hook séparé, à la racine du composant
+  // eslint-disable-next-line react-hooks/exhaustive-deps
 useEffect(() => {
   if (googleToken) {
     fetchGoogleEvents();
