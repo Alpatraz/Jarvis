@@ -619,6 +619,7 @@ const addGoogleEvent = async (title, date, time) => {
     });
     results.push({ name: "toolsPresent", pass: Array.isArray(links) && links.length >= 1, info: "Liens rapides configurés" });
     // New tests (non-breaking)
+    // eslint-disable-next-line no-unused-vars
     const isAsync = Object.prototype.toString.call(handleSend).includes("AsyncFunction");
     results.push({ name: "linksPresent", pass: Array.isArray(links) && links.length >= 1, info: "Liens rapides configurés" });
 results.push({ name: "linksThreeItems", pass: links.length === 3, info: "3 liens rapides visibles" });
