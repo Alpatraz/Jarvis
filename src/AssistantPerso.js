@@ -238,7 +238,7 @@ rec.onend = () => {
 
   const handleGoogleLogin = async () => {
     try {
-      const clientId = "VOTRE_CLIENT_ID.apps.googleusercontent.com"; // TODO: remplacer par le tien
+      const clientId = "V509675438569-rm8lenuieem6k0d7p269s5o9b254ua85.apps.googleusercontent.com"; // TODO: remplacer par le tien
       const redirectUri = window.location.origin;
       const scope = "https://www.googleapis.com/auth/calendar.events";
       const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=token&scope=${scope}`;
