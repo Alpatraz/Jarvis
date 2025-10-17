@@ -44,15 +44,26 @@ function AssistantPerso() {
     }
   });
   const [activeSection, setActiveSection] = useState("all"); // "all" | "idea" | "karate" | "event"
-  const [weather, setWeather] = useState(null);
-  const [showProfile, setShowProfile] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [provider, setProvider] = useState("OpenRouter");
-  const [model, setModel] = useState("gpt-4.1-mini");
-  const [apiKey, setApiKey] = useState(lsGet("apiKey") || "");
-  const [googleToken, setGoogleToken] = useState(lsGet("googleToken") || null);
-  const [now, setNow] = useState(new Date());
-  const [tests, setTests] = useState([]);
+const [weather, setWeather] = useState(null);
+const [showProfile, setShowProfile] = useState(false);
+const [showSettings, setShowSettings] = useState(false);
+const [provider, setProvider] = useState("OpenRouter");
+const [model, setModel] = useState("gpt-4.1-mini");
+const [apiKey, setApiKey] = useState(lsGet("apiKey") || "");
+
+// ✅ Persistance du token Google Calendar
+const [googleToken, setGoogleToken] = useState(() => localStorage.getItem("googleToken"));
+useEffect(() => {
+  if (googleToken) {
+    localStorage.setItem("googleToken", googleToken);
+  } else {
+    localStorage.removeItem("googleToken");
+  }
+}, [googleToken]);
+
+const [now, setNow] = useState(new Date());
+const [tests, setTests] = useState([]);
+
     // ✅ Toasts temporaires (notifications visuelles)
     const [quickToast, setQuickToast] = useState(null);
 
@@ -92,56 +103,72 @@ function AssistantPerso() {
       lsSet("links", JSON.stringify(links));
     }, [links]);
   
-    // Bloc de tâches persistantes
-    const [tasks, setTasks] = useState(() => {
-      try {
-        const saved = lsGet("tasks");
-        return saved ? JSON.parse(saved) : [
-          { text: "Préparer le plan d'entraînement", done: false },
-          { text: "Tester la voix de Jarvis", done: true }
-        ];
-      } catch {
-        return [];
-      }
-    });
-  
-    // Sauvegarde auto des tâches
-    useEffect(() => {
-      lsSet("tasks", JSON.stringify(tasks));
-    }, [tasks]);
-  
-    const addLink = () => {
-      if (links.length >= 6) {
-        setQuickToast("Tu as atteint la limite de 6 liens !");
-        setTimeout(() => setQuickToast(null), 1500);
-        return;
-      }
-      const name = prompt("Nom du lien rapide :");
-      const url = prompt("URL complète (https://...) :");
-      if (name && url) setLinks([...links, { name, url }]);
-    };
-  
-    const toggleTask = (index) => {
-      setTasks(tasks.map((t, i) => i === index ? { ...t, done: !t.done } : t));
-    };
-  
-    const addTask = () => {
-      const text = prompt("Nouvelle tâche :");
-      if (text) setTasks([...tasks, { text, done: false }]);
-    };
+    // ✅ Bloc de gestion des tâches (persistant + purge automatique)
+const [tasks, setTasks] = useState(() => {
+  try {
+    const saved = lsGet("tasks");
+    const today = new Date().toISOString().split("T")[0];
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // Supprime les tâches terminées datant d’un jour précédent
+      return parsed.filter((t) => !t.done || t.date === today);
+    }
+    // Valeurs initiales par défaut
+    return [
+      { text: "Préparer le plan d'entraînement", done: false, date: today },
+      { text: "Tester la voix de Jarvis", done: true, date: today },
+    ];
+  } catch {
+    return [];
+  }
+});
 
-    useEffect(() => {
-      const now = new Date();
-      const msToMidnight =
-        new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0) -
-        now;
-    
-      const timer = setTimeout(() => {
-        setTasks(prev => prev.filter(t => !t.done)); // supprime les tâches terminées
-      }, msToMidnight);
-    
-      return () => clearTimeout(timer);
-    }, [tasks]);
+// ✅ Sauvegarde automatique avec ajout de la date du jour sur les nouvelles tâches
+useEffect(() => {
+  const withDate = tasks.map((t) => ({
+    ...t,
+    date: t.date || new Date().toISOString().split("T")[0],
+  }));
+  lsSet("tasks", JSON.stringify(withDate));
+}, [tasks]);
+
+// ✅ Ajout, bascule et purge quotidienne
+const toggleTask = (index) => {
+  setTasks((prev) =>
+    prev.map((t, i) => (i === index ? { ...t, done: !t.done } : t))
+  );
+};
+
+const addTask = () => {
+  const text = prompt("Nouvelle tâche :");
+  if (text) {
+    setTasks((prev) => [
+      ...prev,
+      { text, done: false, date: new Date().toISOString().split("T")[0] },
+    ]);
+  }
+};
+
+// 🕛 Purge automatique à minuit (supprime les tâches terminées)
+useEffect(() => {
+  const now = new Date();
+  const msToMidnight =
+    new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0) -
+    now;
+
+  const timer = setTimeout(() => {
+    setTasks((prev) => prev.filter((t) => !t.done));
+  }, msToMidnight);
+
+  return () => clearTimeout(timer);
+}, [tasks]);
+
+// ✅ Bloc des liens rapides (plus de limite de 6)
+const addLink = () => {
+  const name = prompt("Nom du lien rapide :");
+  const url = prompt("URL complète (https://...) :");
+  if (name && url) setLinks((prev) => [...prev, { name, url }]);
+};
 
   // ---------- effects ----------
   useEffect(() => {
